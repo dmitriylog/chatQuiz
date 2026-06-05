@@ -1,0 +1,8 @@
+.venv
+.idea
+__pycache__
+*.pyc
+.git
+*.md
+deploy/
+data/*.db
