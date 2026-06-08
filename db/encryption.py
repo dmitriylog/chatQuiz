@@ -24,7 +24,13 @@ def get_or_create_key() -> bytes:
     env_key = os.environ.get(ENCRYPTION_KEY_ENV)
     if env_key:
         try:
-            return base64.urlsafe_b64decode(env_key)
+            # Если ключ в переменной окружения в base64, декодируем
+            decoded = base64.urlsafe_b64decode(env_key)
+            # Fernet key is 32 bytes, but already base64 encoded (44 chars)
+            # If decoded to 32 bytes, return as is; if already 44 bytes, return decoded
+            if len(decoded) == 32:
+                return base64.urlsafe_b64encode(decoded)
+            return decoded
         except Exception:
             pass
     
@@ -35,17 +41,21 @@ def get_or_create_key() -> bytes:
     if os.path.exists(salt_path):
         with open(salt_path, "rb") as f:
             stored_key = f.read()
-            if len(stored_key) == 44:  # Base64 encoded Fernet key
+            # Fernet key is 44 bytes (base64 encoded 32-byte key)
+            if len(stored_key) == 44:
+                return stored_key
+            # Also check for double-encoded key (60 bytes)
+            if len(stored_key) == 60:
                 return base64.urlsafe_b64decode(stored_key)
     
     # Генерируем новый ключ
     key = Fernet.generate_key()
     
-    # Сохраняем в файл
+    # Сохраняем в файл (как есть, без дополнительного кодирования)
     with open(salt_path, "wb") as f:
-        f.write(base64.urlsafe_b64encode(key))
+        f.write(key)
     
-    # Устанавлим права только для владельца
+    # Устанавливаем права только для владельца
     os.chmod(salt_path, 0o600)
     
     return key

@@ -51,3 +51,6 @@ def apply_theme() -> None:
     """Применить тему к customtkinter."""
     ctk.set_appearance_mode("dark")
     ctk.set_default_color_theme("dark-blue")
+    
+    # Настраиваем цвета для всех виджетов
+    ctk.set_widget_scaling(1.0)

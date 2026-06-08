@@ -76,12 +76,12 @@ class ChatApp(ctk.CTk):
         self.login_frame.place(relx=0.5, rely=0.5, anchor="center", relwidth=0.44, relheight=0.78)
 
         ctk.CTkLabel(
-            self.login_frame, text="⚽ Чат + Викторина",
+            self.login_frame, text="Чат-квиз по футболу",
             font=ctk.CTkFont(size=26, weight="bold"), text_color=COLORS["text"],
         ).pack(pady=(28, 4))
         ctk.CTkLabel(
             self.login_frame, text="Войдите или зарегистрируйтесь",
-            font=ctk.CTkFont(size=13), text_color=COLORS["muted"],
+            font=ctk.CTkFont(size=16), text_color=COLORS["muted"],
         ).pack(pady=(0, 16))
 
         self.auth_seg = ctk.CTkSegmentedButton(
@@ -114,16 +114,8 @@ class ChatApp(ctk.CTk):
         self.login_password = ctk.CTkEntry(form, show="•", placeholder_text="••••", fg_color=COLORS["input_bg"])
         self.login_password.pack(fill="x", pady=(2, 10))
 
-        ctk.CTkLabel(
-            form, text="Пароль сервера (если задан админом)", anchor="w", text_color=COLORS["muted"]
-        ).pack(fill="x")
-        self.login_server_pwd = ctk.CTkEntry(
-            form, show="•", placeholder_text="Необязательно", fg_color=COLORS["input_bg"]
-        )
-        self.login_server_pwd.pack(fill="x", pady=(2, 10))
-
-        self.login_ssl = ctk.CTkCheckBox(form, text="WSS (только с HTTPS)")
-        self.login_ssl.pack(anchor="w", pady=4)
+        self.login_server_pwd = ""
+        self.login_ssl = False
 
         self.login_status = ctk.CTkLabel(
             form, text="", text_color=COLORS["muted"], font=ctk.CTkFont(size=11), wraplength=340
@@ -492,8 +484,14 @@ class ChatApp(ctk.CTk):
             )
             btn.pack(side="left", fill="x", expand=True)
             # Use friend_id for DM (session ID if online, otherwise we need to handle offline)
+            def on_friend_right_click(event, fid=friend_id, n=username):
+                event.widget.configure(state="disabled")
+                self.after(10, lambda: event.widget.configure(state="normal"))
+                if fid:
+                    self._open_user_profile({"id": fid, "username": n})
+            
             btn.configure(command=lambda fid=friend_id, n=username: self._open_dm({"id": fid, "username": n}) if fid else None)
-            btn.bind("<Button-3>", lambda e, fid=friend_id, n=username: self._open_user_profile({"id": fid, "username": n}) if fid else None)
+            btn.bind("<Button-3>", on_friend_right_click)
 
             # Remove friend button
             remove_btn = ctk.CTkButton(
@@ -583,31 +581,33 @@ class ChatApp(ctk.CTk):
         server = self.login_server.get().strip()
         username = self.login_user.get().strip()
         password = self.login_password.get()
-        server_pwd = self.login_server_pwd.get()
-        use_ssl = bool(self.login_ssl.get())
 
         if not server or not username or not password:
             self.login_status.configure(text="Заполните сервер, логин и пароль", text_color=COLORS["danger"])
             return
 
         try:
-            parse_server_address(server, use_ssl)
+            parse_server_address(server, False)
         except ValueError as exc:
             self.login_status.configure(text=str(exc), text_color=COLORS["danger"])
             return
 
         self.login_btn.configure(state="disabled")
         self.login_status.configure(text="Подключение…", text_color=COLORS["muted"])
-        save_settings(server, username, use_ssl)
+        save_settings(server, username, False)
+
+        display_name = ""
+        if self._auth_mode == "register":
+            display_name = self.login_display.get().strip()
 
         self._conn.connect(
             server,
             username,
             password,
-            use_ssl,
+            False,  # use_ssl
             auth_action=self._auth_mode,
-            server_password=server_pwd,
-            display_name=self.login_display.get().strip(),
+            server_password="",  # server_pwd
+            display_name=display_name,
         )
 
     def _on_ws_state(self, state: str) -> None:
@@ -1121,8 +1121,13 @@ class ChatApp(ctk.CTk):
                 text_color=COLORS["accent"] if uid == self.user_id else COLORS["text"],
                 hover_color=COLORS["border"],
             )
+            def on_right_click(event, uid=uid, name=name):
+                event.widget.configure(state="disabled")
+                self.after(10, lambda: event.widget.configure(state="normal"))
+                self._open_user_profile({"id": uid, "username": name})
+            
             btn.configure(command=lambda uid=uid, name=name: self._open_dm({"id": uid, "username": name}))
-            btn.bind("<Button-3>", lambda e, uid=uid, name=name: self._open_user_profile({"id": uid, "username": name}))
+            btn.bind("<Button-3>", on_right_click)
             btn.pack(fill="x", pady=2)
 
     def _open_general(self) -> None:
