@@ -965,6 +965,12 @@ class ChatApp(ctk.CTk):
             text = data.get("text", "")
             timestamp = data.get("timestamp")
 
+            # Skip echo messages from ourselves to avoid duplicates
+            # (we already added the message locally when sending)
+            if data.get("isEcho"):
+                # Only update timestamp if needed, but don't add duplicate
+                return
+
             # Show in general chat
             self._show_chat_entry("general", author, text, timestamp, "own" if is_own else "other")
 
@@ -975,11 +981,7 @@ class ChatApp(ctk.CTk):
             return
 
         if msg_type == "dm":
-            print("=== DM RECEIVED IN CLIENT ===")
-            print(f"Full data: {data}")
-
             is_echo = bool(data.get("isEcho"))
-            print(f"Is echo: {is_echo}")
 
             # Determine peer ID
             if is_echo:
@@ -987,19 +989,17 @@ class ChatApp(ctk.CTk):
             else:
                 peer_id = data.get("userId")
 
-            print(f"Peer ID: {peer_id}")
-            print(f"My user_id: {self.user_id}")
-
             if not peer_id:
-                print("No peer_id, skipping")
                 return
 
-            # For echo messages from ourselves, skip if we already added locally
-            is_own = is_echo or data.get("userId") == self.user_id
+            # For echo messages from ourselves, skip to avoid duplicates
+            # (we already added the message locally when sending)
+            if is_echo:
+                return
 
-            # For non-echo messages from others, always show
+            # For messages from others, always show
+            is_own = data.get("userId") == self.user_id
             if not is_own:
-                print(f"Received DM from {data.get('username')}")
                 # Show notification in general chat
                 self._show_system_entry("general",
                                         f"💬 Новое личное сообщение от {data.get('username')} (откройте личный чат)")
@@ -1014,7 +1014,6 @@ class ChatApp(ctk.CTk):
 
                 # If this DM conversation is currently open, display it
                 if self.chat_mode == "dm" and self.dm_target and self.dm_target.get("id") == peer_id:
-                    print(f"Displaying in current DM view")
                     self._append_chat_line(author, text, timestamp, "dm")
 
             return

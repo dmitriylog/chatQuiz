@@ -207,7 +207,7 @@ class Database:
         sender_user_id: str,
         sender_username: str,
         body: str,
-        encrypt: bool = True,
+        encrypt: bool = False,
     ) -> int:
         """Сохранить сообщение. Если encrypt=True - зашифровать тело сообщения."""
         message_body = encrypt_message(body) if encrypt else body
@@ -222,7 +222,7 @@ class Database:
             conn.commit()
             return int(cur.lastrowid)
 
-    def get_channel_history(self, channel: str, limit: int = 200, decrypt: bool = True) -> list[dict[str, Any]]:
+    def get_channel_history(self, channel: str, limit: int = 200, decrypt: bool = False) -> list[dict[str, Any]]:
         """Получить историю канала. Если decrypt=True - расшифровать сообщения."""
         with self.connect() as conn:
             rows = conn.execute(

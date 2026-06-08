@@ -77,8 +77,8 @@ HOST=0.0.0.0
 sudo nano /etc/systemd/system/chat-quiz.service
 ```
 
-Содержимое:
-```ini
+Содержимое (начинайте с `[Unit]`, а не с `ini`):
+```
 [Unit]
 Description=Chat Quiz WebSocket Server
 After=network.target
@@ -111,11 +111,11 @@ sudo systemctl status chat-quiz
 sudo nano /etc/nginx/sites-available/chat
 ```
 
-Содержимое:
+Содержимое (убедитесь, что нет лишних символов в начале файла):
 ```nginx
 server {
     listen 80;
-    server_name 158.160.231.28;  # Или ваш домен
+    server_name 158.160.231.28;
 
     location /ws {
         proxy_pass http://127.0.0.1:8765;
@@ -140,8 +140,14 @@ server {
 }
 ```
 
+**Важно:** Убедитесь, что в файле нет лишних строк в начале (особенно слов "nginx" или других директив вне блока server). Файл должен начинаться сразу с `server {`.
+
 ### Включите сайт:
 ```bash
+# Удаляем старую ссылку если существует
+sudo rm -f /etc/nginx/sites-enabled/chat
+
+# Создаем новую ссылку
 sudo ln -s /etc/nginx/sites-available/chat /etc/nginx/sites-enabled/
 sudo nginx -t
 sudo systemctl restart nginx
@@ -175,17 +181,98 @@ pyinstaller --onefile --windowed --name="ChatQuiz" main.py
 
 ## 7. Проверка работы
 
+### Проверьте статус сервиса:
+```bash
+sudo systemctl status chat-quiz
+```
+
+Если сервис не запущен, запустите его:
+```bash
+sudo systemctl start chat-quiz
+```
+
 ### Проверьте логи сервера:
 ```bash
 sudo journalctl -u chat-quiz -f
 ```
 
-### Проверьте подключение:
+Или последние 50 строк:
 ```bash
-curl -i http://158.160.231.28:8765/
+sudo journalctl -u chat-quiz -n 50 --no-pager
 ```
 
-Должен вернуться HTML файл.
+### Проверьте, слушает ли сервер порт:
+```bash
+sudo netstat -tulpn | grep 8765
+# или
+sudo ss -tulpn | grep 8765
+```
+
+### Проверьте подключение:
+```bash
+curl -i http://127.0.0.1:8765/
+```
+
+Должен вернуться HTML файл. Если на localhost работает, но по внешнему IP нет - проверьте брандмауэр:
+```bash
+sudo ufw status
+sudo ufw allow 8765/tcp
+```
+
+### Если сервис не запускается:
+1. Проверьте, что виртуальное окружение активно: `source /home/chatuser/chat/.venv/bin/activate`
+2. Попробуйте запустить сервер вручную для отладки:
+   ```bash
+   cd /home/chatuser/chat
+   source .venv/bin/activate
+   python run_server.py --host 0.0.0.0 --port 8765
+   ```
+3. Проверьте логи на ошибки Python: `sudo journalctl -u chat-quiz -xe`
+
+### Если сервис постоянно перезапускается (activating/auto-restart):
+
+1. **Остановите сервис:**
+```bash
+sudo systemctl stop chat-quiz
+```
+
+2. **Проверьте логи:**
+```bash
+sudo journalctl -u chat-quiz -n 30 --no-pager
+```
+
+3. **Попробуйте запустить вручную для отладки:**
+```bash
+cd /home/chatuser/chat
+source .venv/bin/activate
+python run_server.py --host 0.0.0.0 --port 8765
+```
+
+4. **Если ошибка "address already in use" - убейте процесс:**
+```bash
+# Найдите процесс, использующий port 8765
+sudo lsof -i :8765
+# или
+sudo netstat -tulpn | grep 8765
+
+# Убейте процесс
+sudo kill -9 <PID>
+```
+
+5. **Запустите сервис снова:**
+```bash
+sudo systemctl start chat-quiz
+sudo systemctl status chat-quiz
+```
+
+6. **Если все еще не работает - проверьте права доступа:**
+```bash
+# Убедитесь что chatuser владеет файлами
+sudo chown -R chatuser:chatuser /home/chatuser/chat
+
+# Проверьте что виртуальное окружение работает
+sudo -u chatuser /home/chatuser/chat/.venv/bin/python --version
+```
 
 ## 8. Обновление приложения
 
@@ -212,25 +299,8 @@ cp /home/chatuser/chat/data/chat.db /backup/chat_$(date +%Y%m%d).db
 
 ## 10. Безопасность
 
-### Рекомендации:
-1. Используйте HTTPS (настройте SSL через Let's Encrypt)
-2. Установите сложный пароль сервера (`CHAT_PASSWORD`)
-3. Регулярно обновляйте систему: `sudo apt update && sudo apt upgrade`
-4. Настройте fail2ban для защиты от брутфорса
-
-### Настройка SSL (Let's Encrypt):
-```bash
-sudo apt install certbot python3-certbot-nginx
-sudo certbot --nginx -d ваш-домен.ru
-```
 
 ## 11. Мониторинг
-
-### Установите htop для мониторинга:
-```bash
-sudo apt install htop
-htop
-```
 
 ### Просмотр использования ресурсов:
 ```bash
