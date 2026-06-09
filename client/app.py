@@ -16,6 +16,12 @@ from client.profile_dialog import ProfileDialog
 from client.quiz_window import QuizWindow
 from client.theme import COLORS
 
+try:
+    from PIL import Image, ImageTk, ImageDraw
+    HAS_PIL = True
+except ImportError:
+    HAS_PIL = False
+
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("dark-blue")
 
@@ -535,6 +541,7 @@ class ChatApp(ctk.CTk):
 
             name = req.get('display_name', req.get('username', '?'))
             from_user_id = req.get('from_user_id', '')
+            from_username = req.get('username', '')
 
             ctk.CTkLabel(
                 frame,
@@ -548,7 +555,7 @@ class ChatApp(ctk.CTk):
                 text="✅",
                 width=30,
                 fg_color=COLORS["success"],
-                command=lambda fid=from_user_id: self._accept_friend(fid),
+                command=lambda fid=from_user_id, un=from_username: self._accept_friend(fid, un),
             ).pack(side="right", padx=2, pady=2)
 
             ctk.CTkButton(
@@ -556,18 +563,26 @@ class ChatApp(ctk.CTk):
                 text="❌",
                 width=30,
                 fg_color=COLORS["danger"],
-                command=lambda fid=from_user_id: self._reject_friend(fid),
+                command=lambda fid=from_user_id, un=from_username: self._reject_friend(fid, un),
             ).pack(side="right", padx=2, pady=2)
 
-    def _accept_friend(self, from_user_id: str) -> None:
+    def _accept_friend(self, from_user_id: str, from_username: str = "") -> None:
         """Accept friend request."""
         if self._connected:
-            self._conn.send({"type": "accept_friend", "from_user_id": from_user_id})
+            self._conn.send({
+                "type": "accept_friend",
+                "from_user_id": from_user_id,
+                "from_username": from_username
+            })
 
-    def _reject_friend(self, from_user_id: str) -> None:
+    def _reject_friend(self, from_user_id: str, from_username: str = "") -> None:
         """Reject friend request."""
         if self._connected:
-            self._conn.send({"type": "reject_friend", "from_user_id": from_user_id})
+            self._conn.send({
+                "type": "reject_friend",
+                "from_user_id": from_user_id,
+                "from_username": from_username
+            })
 
     def _show_login(self) -> None:
         self.chat_frame.pack_forget()
@@ -761,6 +776,18 @@ class ChatApp(ctk.CTk):
             if not hasattr(self, 'avatar_cache'):
                 self.avatar_cache = {}
             self.avatar_cache[username] = avatar_data
+            
+            # Если открыт профиль этого пользователя (ProfileDialog), обновляем аватарку
+            if hasattr(self, '_profile_dialog') and self._profile_dialog and self._profile_dialog.winfo_exists():
+                profile_username = self._profile_dialog._profile.get("username", "")
+                if profile_username == username and avatar_data:
+                    self._profile_dialog._display_avatar(avatar_data)
+            
+            # Если открыт профиль другого пользователя (через _show_user_profile), ищем его диалог
+            # В этом случае avatar_data придет после того, как диалог уже создан
+            # Мы не можем напрямую обновить аватарку в ctk.CTkToplevel, созданном в _show_user_profile
+            # Поэтому просто кэшируем, а при следующем открытии профиля аватарка загрузится из кэша
+            
             return
 
         if msg_type == "friend_status":
@@ -1239,7 +1266,7 @@ class ChatApp(ctk.CTk):
             "quizWins": 0,
             "quizPoints": 0,
         }
-        ProfileDialog(self, profile, on_save=self._save_profile)
+        self._profile_dialog = ProfileDialog(self, profile, on_save=self._save_profile)
 
     def _save_profile(self, display_name: str, bio: str) -> None:
         if self._connected:
@@ -1352,9 +1379,37 @@ class ChatApp(ctk.CTk):
         )
         av.pack(pady=(25, 10))
         
-        # Загружаем аватарку если есть
-        if profile.get("has_avatar"):
-            # Отправляем запрос на сервер для получения аватарки
+        # Проверяем кэш аватарок
+        avatar_from_cache = None
+        if hasattr(self, 'avatar_cache') and uname in self.avatar_cache:
+            avatar_from_cache = self.avatar_cache[uname]
+        
+        # Если аватарка есть в кэше, отображаем её сразу
+        if avatar_from_cache:
+            try:
+                if HAS_PIL:
+                    import base64
+                    import io
+                    from PIL import Image, ImageDraw
+                    
+                    b64_data = avatar_from_cache.split(",", 1)[1] if "," in avatar_from_cache else avatar_from_cache
+                    image_bytes = base64.b64decode(b64_data)
+                    image = Image.open(io.BytesIO(image_bytes))
+                    image = image.resize((80, 80), Image.Resampling.LANCZOS)
+                    
+                    mask = Image.new("L", (80, 80), 0)
+                    draw = ImageDraw.Draw(mask)
+                    draw.ellipse([0, 0, 80, 80], fill=255)
+                    image.put_alpha(mask)
+                    
+                    # Используем CTkImage вместо ImageTk.PhotoImage
+                    ctk_image = ctk.CTkImage(light_image=image, dark_image=image, size=(80, 80))
+                    self._avatar_image = ctk_image  # Сохраняем ссылку
+                    av.configure(text="", image=ctk_image, fg_color="transparent")
+            except Exception as e:
+                print(f"Error displaying cached avatar: {e}")
+        elif profile.get("has_avatar"):
+            # Если аватарка есть, но нет в кэше, запрашиваем с сервера
             if self._connected:
                 self._conn.send({
                     "type": "get_avatar",

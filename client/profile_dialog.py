@@ -275,7 +275,7 @@ class ProfileDialog(ctk.CTkToplevel):
         
         self.avatar_label.configure(
             text=initials,
-            image="",
+            image=None,
             fg_color=COLORS["accent"]
         )
 
@@ -321,16 +321,16 @@ class ProfileDialog(ctk.CTkToplevel):
             # Применяем маску
             image.put_alpha(mask)
             
-            # Конвертируем в PhotoImage
-            photo = ImageTk.PhotoImage(image)
+            # Используем CTkImage вместо ImageTk.PhotoImage
+            ctk_image = ctk.CTkImage(light_image=image, dark_image=image, size=(80, 80))
             
             # Сохраняем ссылку чтобы избежать сборки мусора
-            self._avatar_image = photo
+            self._avatar_image = ctk_image
             
             # Обновляем label
             self.avatar_label.configure(
                 text="",
-                image=photo,
+                image=ctk_image,
                 fg_color="transparent"
             )
         except Exception as e:

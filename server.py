@@ -363,10 +363,23 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 to_user_id = data.get("to_user_id", "")
                 to_username = data.get("to_username", "")
                 target = room.get_client(to_user_id)
+                
+                # Get the target's account (login username) for the database
+                # If target is online, use their account; otherwise use the provided username as fallback
+                to_account = None
+                if target and hasattr(target, "account"):
+                    to_account = target.account
+                else:
+                    # Target is offline, try to get account from database
+                    target_profile = db.get_profile(to_username)
+                    if target_profile:
+                        to_account = target_profile["username"]
+                    else:
+                        to_account = to_username  # fallback to display name
 
                 success, msg = db.send_friend_request(
                     client.account, client.username,
-                    to_user_id, to_username
+                    to_user_id, to_account
                 )
 
                 if success and target:
@@ -390,10 +403,43 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 
             if msg_type == "accept_friend":
                 from_session_id = data.get("from_user_id", "")
-                # Find the target client by session ID to get their account username
-                target = room.get_client(from_session_id)
-                if not target or not hasattr(target, "account"):
-                    log.warning(f"Target not found for session_id: {from_session_id}")
+                from_username = data.get("from_username", "")
+                
+                log.info(f"accept_friend: from_session_id={from_session_id}, from_username={from_username}")
+                log.info(f"Current clients: {[(uid, c.account if hasattr(c, 'account') else 'N/A') for uid, c in room.clients.items()]}")
+                
+                # Find the target client by session ID or username
+                target = None
+                if from_session_id:
+                    target = room.get_client(from_session_id)
+                    log.info(f"Found by session_id: {target}")
+                
+                # If not found by session ID, try to find by username
+                if not target and from_username:
+                    for uid, c in room.clients.items():
+                        account_val = getattr(c, 'account', None)
+                        log.info(f"Checking client {uid}: account={account_val}, comparing with from_username={from_username}")
+                        if account_val and account_val == from_username:
+                            target = c
+                            log.info(f"Found target by username: {target}")
+                            break
+                
+                if not target:
+                    log.warning(f"Target not found for accept_friend: from_session_id={from_session_id}, from_username={from_username}")
+                    # Still update the database even if sender is offline
+                    success = db.accept_friend_request(client.account, from_username)
+                    if success:
+                        await client.websocket.send_json({
+                            "type": "friend_list_updated",
+                        })
+                        await client.websocket.send_json({
+                            "type": "system",
+                            "text": f"✅ Вы приняли заявку в друзья!",
+                            "timestamp": _now_iso(),
+                        })
+                        await client.websocket.send_json({
+                            "type": "pending_requests_updated",
+                        })
                     continue
 
                 from_username = target.account
@@ -412,7 +458,10 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                         "text": f"✅ {client.username} принял(а) вашу заявку в друзья!",
                         "timestamp": _now_iso(),
                     })
-                    # Notify the sender to refresh their lists
+                    # Notify the sender to refresh their friends list
+                    await target.websocket.send_json({
+                        "type": "friend_list_updated",
+                    })
                     await target.websocket.send_json({
                         "type": "pending_requests_updated",
                     })
